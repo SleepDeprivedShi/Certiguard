@@ -1,0 +1,25 @@
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'
+
+export const TENDER_STATUS = {
+  PENDING: 'PENDING',
+  IN_PROGRESS: 'IN_PROGRESS',
+  COMPLETED: 'COMPLETED'
+} as const
+
+export const VERDICT = {
+  ELIGIBLE: 'ELIGIBLE',
+  NOT_ELIGIBLE: 'NOT_ELIGIBLE',
+  NEEDS_REVIEW: 'NEEDS_REVIEW'
+} as const
+
+export const YELLOW_FLAG_TRIGGERS = [
+  'ENTITY_MISMATCH',
+  'DATE_CONFLICT',
+  'DOCUMENT_QUALITY',
+  'CROSS_DOC_CONFLICT',
+  'EXPIRY_PENDING',
+  'INCOMPLETE_EVIDENCE',
+  'AMBIGUOUS_VALUE',
+  'AUTHORITY_UNVERIFIED',
+  'OTHER'
+] as const
