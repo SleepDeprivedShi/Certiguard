@@ -26,8 +26,8 @@ app.add_middleware(
 PROCESSED_RESULTS: Dict[str, Dict] = {}
 TENDERS_LIST = [
     {"tender_id": "T001", "tender_name": "CRPF Uniform Supply 2026", "bidder_count": 4, "status": "active", "submission_deadline": "2026-06-15"},
-    {"tender_id": "T002", "tender_name": "CRPF IT Equipment 2026", "bidder_count": 5, "status": "active", "submission_deadline": "2026-07-01"},
-    {"tender_id": "T003", "tender_name": "CRPF Security Services", "bidder_count": 3, "status": "active", "submission_deadline": "2026-04-15"},
+    {"tender_id": "T002", "tender_name": "CRPF Security Services 2026", "bidder_count": 3, "status": "active", "submission_deadline": "2026-07-15"},
+    {"tender_id": "T003", "tender_name": "CRPF IT Equipment 2026", "bidder_count": 5, "status": "active", "submission_deadline": "2026-07-01"},
 ]
 
 
@@ -303,6 +303,17 @@ async def process_uploaded(
         )
         
         PROCESSED_RESULTS[tender_id] = result
+        
+        # Add/update tender in TENDERS_LIST
+        tender_exists = any(t["tender_id"] == tender_id for t in TENDERS_LIST)
+        if not tender_exists:
+            TENDERS_LIST.append({
+                "tender_id": tender_id,
+                "tender_name": tender_name,
+                "bidder_count": len(result.get("bidders", [])),
+                "status": "active",
+                "submission_deadline": result.get("submission_deadline", "2026-12-31")
+            })
         
         return {
             "status": "processed",
