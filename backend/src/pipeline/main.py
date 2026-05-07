@@ -276,6 +276,9 @@ class CertiGuardPipeline:
             'tender_id': self.config.tender_id,
             'tender_name': tender_criteria.get('name', 'Unknown'),
             'submission_deadline': tender_criteria.get('deadline', ''),
+            'criteria': tender_criteria.get('criteria', []),
+            'criteria_approved': False,
+            'sign_off': None,
             'bidders': bidders_results,
             'audit_records': [],
             'yellow_flag_summary': summary,
@@ -305,13 +308,19 @@ class CertiGuardPipeline:
                 print(f"[TenderParser] Failed to parse tender: {e}")
         
         # Fallback to defaults
+        tender_name_map = {
+            'T001': 'CRPF Uniform Supply 2026',
+            'T002': 'CRPF Security Services 2026',
+            'T003': 'CRPF IT Equipment 2026',
+        }
         return {
-            'name': 'CRPF Uniform Supply 2026',
-            'deadline': '2026-06-15',
+            'name': tender_name_map.get(self.config.tender_id, f'Tender {self.config.tender_id}'),
+            'deadline': '2026-12-31',
             'criteria': [
-                {'id': 'C001', 'label': 'Valid GST Registration', 'type': 'CERTIFICATION', 'nature': 'MANDATORY'},
-                {'id': 'C002', 'label': 'Minimum 3 Years Experience', 'type': 'EXPERIENCE', 'nature': 'MANDATORY'},
-                {'id': 'C003', 'label': 'Annual Turnover above 50L', 'type': 'FINANCIAL', 'nature': 'DESIRABLE'},
+                {'id': 'C001', 'label': 'Valid GST Registration', 'type': 'compliance', 'nature': 'MANDATORY'},
+                {'id': 'C002', 'label': 'Minimum Experience', 'type': 'technical', 'nature': 'MANDATORY'},
+                {'id': 'C003', 'label': 'Annual Turnover', 'type': 'financial', 'nature': 'DESIRABLE'},
+                {'id': 'C004', 'label': 'Quality Certification', 'type': 'compliance', 'nature': 'DESIRABLE'},
             ]
         }
 

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getTenders } from '../hooks/useApi'
+import { getTenders, getCriteria } from '../hooks/useApi'
 import type { TenderSummary } from '../hooks/useApi'
+import SignOffModal from '../components/SignOffModal'
 
 interface DashboardProps {
   onSelectTender: (tenderId: string) => void
@@ -11,6 +12,8 @@ export default function Dashboard({ onSelectTender }: DashboardProps) {
   const navigate = useNavigate()
   const [recentTenders, setRecentTenders] = useState<TenderSummary[]>([])
   const [loading, setLoading] = useState(true)
+  const [tenderSignOff, setTenderSignOff] = useState<string | null>(null)
+  const [criteriaStatus, setCriteriaStatus] = useState<Record<string, { approved: boolean, signed: boolean }>>({})
 
   useEffect(() => {
     getTenders()
@@ -19,11 +22,43 @@ export default function Dashboard({ onSelectTender }: DashboardProps) {
       .finally(() => setLoading(false))
   }, [])
 
+  useEffect(() => {
+    const checkCriteriaStatus = async () => {
+      const status: Record<string, { approved: boolean, signed: boolean }> = {}
+      for (const tender of recentTenders) {
+        try {
+          const data = await getCriteria(tender.tender_id)
+          status[tender.tender_id] = {
+            approved: data.criteria_approved || false,
+            signed: !!data.sign_off
+          }
+        } catch {
+          status[tender.tender_id] = { approved: false, signed: false }
+        }
+      }
+      setCriteriaStatus(status)
+    }
+    if (recentTenders.length > 0) checkCriteriaStatus()
+  }, [recentTenders])
+
+  const handleSignOffSuccess = () => {
+    setTenderSignOff(null)
+    getTenders().then(setRecentTenders)
+  }
+
   const completedCount = recentTenders.filter(t => t.status === 'completed').length
   const activeCount = recentTenders.filter(t => t.status === 'active').length
 
   return (
     <div className="space-y-6">
+      {tenderSignOff && (
+        <SignOffModal
+          tenderId={tenderSignOff}
+          onClose={() => setTenderSignOff(null)}
+          onSuccess={handleSignOffSuccess}
+        />
+      )}
+      
       <div>
         <h2 className="text-2xl font-bold text-slate-800">Dashboard</h2>
         <p className="text-slate-500">Overview of recent tender evaluations</p>
@@ -62,7 +97,8 @@ export default function Dashboard({ onSelectTender }: DashboardProps) {
                     <th className="text-left p-4 text-sm font-medium text-slate-600">Name</th>
                     <th className="text-left p-4 text-sm font-medium text-slate-600">Bidders</th>
                     <th className="text-left p-4 text-sm font-medium text-slate-600">Status</th>
-                    <th className="text-left p-4 text-sm font-medium text-slate-600">Action</th>
+                    <th className="text-left p-4 text-sm font-medium text-slate-600">Criteria</th>
+                    <th className="text-left p-4 text-sm font-medium text-slate-600">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -85,12 +121,37 @@ export default function Dashboard({ onSelectTender }: DashboardProps) {
                         </span>
                       </td>
                       <td className="p-4">
-                        <button
-                          onClick={() => { onSelectTender(tender.tender_id); navigate('/queue'); }}
-                          className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
-                        >
-                          View
-                        </button>
+                        {criteriaStatus[tender.tender_id]?.signed ? (
+                          <span className="text-green-600 text-sm">✓ Signed Off</span>
+                        ) : criteriaStatus[tender.tender_id]?.approved ? (
+                          <span className="text-blue-600 text-sm">✓ Approved</span>
+                        ) : (
+                          <span className="text-amber-600 text-sm">Pending</span>
+                        )}
+                      </td>
+                      <td className="p-4">
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => navigate(`/criteria/${tender.tender_id}`)}
+                            className="px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded hover:bg-purple-200"
+                          >
+                            Criteria
+                          </button>
+                          <button
+                            onClick={() => { onSelectTender(tender.tender_id); navigate('/queue'); }}
+                            className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                          >
+                            Review
+                          </button>
+                          {criteriaStatus[tender.tender_id]?.approved && !criteriaStatus[tender.tender_id]?.signed && (
+                            <button
+                              onClick={() => setTenderSignOff(tender.tender_id)}
+                              className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200"
+                            >
+                              Sign Off
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}

@@ -126,3 +126,34 @@ export async function getUploadStatus(tenderId: string): Promise<UploadStatus> {
   const { data } = await api.get<UploadStatus>(`/upload/status/${tenderId}`)
   return data
 }
+
+export interface CriteriaInfo {
+  tender_id: string
+  criteria: any[]
+  criteria_approved: boolean
+  sign_off: any | null
+}
+
+export async function getCriteria(tenderId: string): Promise<CriteriaInfo> {
+  const { data } = await api.get<CriteriaInfo>(`/criteria/${tenderId}`)
+  return data
+}
+
+export async function approveCriteria(tenderId: string, officerId: string, officerName: string, signature: string): Promise<any> {
+  const { data } = await api.post(`/criteria/${tenderId}/approve`, null, {
+    params: { officer_id: officerId, officer_name: officerName, signature }
+  })
+  return data
+}
+
+export async function updateCriteria(tenderId: string, criteria: any[]): Promise<any> {
+  const { data } = await api.post(`/criteria/${tenderId}/update`, { criteria })
+  return data
+}
+
+export async function signOffTender(tenderId: string, officerId: string, officerName: string, signature: string, notes: string = ""): Promise<any> {
+  const { data } = await api.post(`/signoff/${tenderId}`, null, {
+    params: { officer_id: officerId, officer_name: officerName, signature, notes }
+  })
+  return data
+}

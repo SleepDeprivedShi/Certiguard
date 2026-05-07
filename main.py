@@ -348,6 +348,118 @@ def get_upload_status(tender_id: str):
     }
 
 
+@app.get("/api/v1/criteria/{tender_id}")
+def get_criteria(tender_id: str):
+    """Get extracted criteria for a tender."""
+    
+    default_criteria_map = {
+        'T001': [
+            {'id': 'C001', 'label': 'Valid GST Registration', 'type': 'compliance', 'nature': 'MANDATORY'},
+            {'id': 'C002', 'label': 'Minimum 3 Years Experience', 'type': 'technical', 'nature': 'MANDATORY'},
+            {'id': 'C003', 'label': 'Annual Turnover above 50L', 'type': 'financial', 'nature': 'DESIRABLE'},
+        ],
+        'T002': [
+            {'id': 'C001', 'label': 'Valid GST Registration', 'type': 'compliance', 'nature': 'MANDATORY'},
+            {'id': 'C002', 'label': 'Minimum 5 Years Experience', 'type': 'technical', 'nature': 'MANDATORY'},
+            {'id': 'C003', 'label': 'Annual Turnover above 1 Crore', 'type': 'financial', 'nature': 'DESIRABLE'},
+            {'id': 'C004', 'label': 'ISO 9001 Certification', 'type': 'compliance', 'nature': 'DESIRABLE'},
+        ],
+        'T003': [
+            {'id': 'C001', 'label': 'Valid GST Registration', 'type': 'compliance', 'nature': 'MANDATORY'},
+            {'id': 'C002', 'label': 'Minimum 2 Years Experience', 'type': 'technical', 'nature': 'MANDATORY'},
+            {'id': 'C003', 'label': 'Annual Turnover above 25L', 'type': 'financial', 'nature': 'DESIRABLE'},
+        ],
+    }
+    
+    if tender_id in PROCESSED_RESULTS:
+        result = PROCESSED_RESULTS[tender_id]
+        return {
+            "tender_id": tender_id,
+            "criteria": result.get("criteria", default_criteria_map.get(tender_id, [])),
+            "criteria_approved": result.get("criteria_approved", False),
+            "sign_off": result.get("sign_off", None)
+        }
+    else:
+        # Return default criteria for tenders that haven't been processed
+        return {
+            "tender_id": tender_id,
+            "criteria": default_criteria_map.get(tender_id, [
+                {'id': 'C001', 'label': 'GST Registration', 'type': 'compliance', 'nature': 'MANDATORY'},
+                {'id': 'C002', 'label': 'Experience', 'type': 'technical', 'nature': 'MANDATORY'},
+                {'id': 'C003', 'label': 'Turnover', 'type': 'financial', 'nature': 'DESIRABLE'},
+            ]),
+            "criteria_approved": False,
+            "sign_off": None
+        }
+
+
+@app.post("/api/v1/criteria/{tender_id}/approve")
+def approve_criteria(tender_id: str, officer_id: str = Query(...), officer_name: str = Query(...), signature: str = Query(...)):
+    """Approve extracted criteria before final evaluation."""
+    if tender_id not in PROCESSED_RESULTS:
+        return {"error": "Tender not processed"}
+    
+    PROCESSED_RESULTS[tender_id]["criteria_approved"] = True
+    PROCESSED_RESULTS[tender_id]["criteria_approval"] = {
+        "officer_id": officer_id,
+        "officer_name": officer_name,
+        "signature": signature,
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    return {
+        "status": "approved",
+        "tender_id": tender_id,
+        "approved_at": datetime.now().isoformat()
+    }
+
+
+@app.post("/api/v1/criteria/{tender_id}/update")
+def update_criteria(tender_id: str, criteria: List[Dict]):
+    """Update criteria (edit before approval)."""
+    if tender_id not in PROCESSED_RESULTS:
+        return {"error": "Tender not processed"}
+    
+    PROCESSED_RESULTS[tender_id]["criteria"] = criteria
+    PROCESSED_RESULTS[tender_id]["criteria_approved"] = False
+    
+    return {
+        "status": "updated",
+        "tender_id": tender_id,
+        "message": "Criteria updated. Please review and approve."
+    }
+
+
+@app.post("/api/v1/signoff/{tender_id}")
+def sign_off_tender(
+    tender_id: str,
+    officer_id: str = Query(...),
+    officer_name: str = Query(...),
+    signature: str = Query(...),
+    notes: str = Query("")
+):
+    """Sign off on a tender evaluation."""
+    if tender_id not in PROCESSED_RESULTS:
+        return {"error": "Tender not processed"}
+    
+    sign_off_data = {
+        "officer_id": officer_id,
+        "officer_name": officer_name,
+        "signature": signature,
+        "notes": notes,
+        "timestamp": datetime.now().isoformat(),
+        "status": "approved"
+    }
+    
+    PROCESSED_RESULTS[tender_id]["sign_off"] = sign_off_data
+    
+    return {
+        "status": "signed_off",
+        "tender_id": tender_id,
+        "sign_off": sign_off_data
+    }
+
+
 def create_sample_tender(tender_id: str, tender_name: str, filepath: str):
     """Create a sample tender PDF."""
     try:
