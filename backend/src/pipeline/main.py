@@ -46,7 +46,7 @@ class BidderDocument:
 
 
 class OCRProcessor:
-    """OCR using pdfplumber - text-based extraction."""
+    """OCR using pdfplumber - text-based extraction with scanned doc detection."""
 
     def extract_text(self, file_path: str) -> str:
         """Extract text from PDF using pdfplumber."""
@@ -62,6 +62,13 @@ class OCRProcessor:
         except Exception as e:
             print(f"[OCR] Failed to extract {file_path}: {e}")
             return ""
+
+    def is_scanned_document(self, file_path: str) -> bool:
+        """Detect if PDF is a scanned document (no extractable text)."""
+        text = self.extract_text(file_path)
+        if not text or len(text.strip()) < 10:
+            return True
+        return False
 
 
 class EntityExtractor:
@@ -169,11 +176,18 @@ class CertiGuardPipeline:
                 extracted_entities = []
                 all_text = ""
 
+                entity_types = ['gstin', 'gst_number', 'pan', 'pan_number', 'turnover', 
+                               'experience_years', 'years_of_experience', 'certification', 
+                               'company_name', 'email', 'phone']
+
                 for pdf_file in bidder_files:
                     text = self.ocr.extract_text(str(pdf_file))
-                    entities = self.entity_extractor.extract(text)
+                    entities = self.entity_extractor.extract_entities(text, entity_types)
                     extracted_entities.extend(entities)
                     all_text += "\n" + text
+
+                # Debug: print extracted entities
+                print(f"[Debug] Bidder {bidder_id} entities: {[(e.entity_type, e.value) for e in extracted_entities]}")
 
                 # Verify and generate verdict
                 criterion_results = self._verify_bidder(
@@ -211,7 +225,7 @@ class CertiGuardPipeline:
 
                 for pdf_file in bidder_dir.glob("*.pdf"):
                     text = self.ocr.extract_text(str(pdf_file))
-                    entities = self.entity_extractor.extract(text)
+                    entities = self.entity_extractor.extract_entities(text, [])
                     extracted_entities.extend(entities)
                     all_text += "\n" + text
 
@@ -440,7 +454,7 @@ class CertiGuardPipeline:
             reason = ''
 
             if criterion_id == 'C001':  # GST Registration
-                gst_entities = [e for e in entities if e.entity_type == 'gstin']
+                gst_entities = [e for e in entities if e.entity_type in ['gstin', 'gst_number']]
                 if not gst_entities:
                     verdict = 'NOT_ELIGIBLE'
                     confidence = 0.9
@@ -523,8 +537,9 @@ class CertiGuardPipeline:
                             'confidence': 0.85
                         })
 
-            elif criterion_id == 'C003':  # Turnover
+            if criterion_id == 'C003':  # Turnover
                 turnover_entities = [e for e in entities if e.entity_type == 'turnover']
+                
                 if not turnover_entities:
                     verdict = 'ELIGIBLE'
                     confidence = 0.6
@@ -536,21 +551,20 @@ class CertiGuardPipeline:
                         'confidence': 0.6
                     })
                 else:
-                    try:
-                        amount = int(turnover_entities[0].normalized_value.replace(",", "") or 0)
-                    except (AttributeError, ValueError):
-                        amount = 0
+                    # Pick the turnover with highest value
+                    valid_turnovers = []
+                    for te in turnover_entities:
+                        try:
+                            val = int(te.normalized_value.replace(",", "") or 0)
+                            if val > 1000:
+                                valid_turnovers.append((val, te))
+                        except:
+                            pass
                     
-                    if amount == 0:
+                    if not valid_turnovers:
                         verdict = 'NEEDS_REVIEW'
                         confidence = 0.5
                         reason = 'Turnover value not properly extracted'
-                        yellow_flags = [{
-                            'trigger_type': 'EXTRACTION_FAILED',
-                            'reason': 'Could not extract turnover amount from documents',
-                            'affected_entity': 'turnover',
-                            'confidence_delta': -0.3
-                        }]
                         checks.append({
                             'check_name': 'Turnover Validation',
                             'passed': False,
@@ -558,6 +572,9 @@ class CertiGuardPipeline:
                             'confidence': 0.5
                         })
                     else:
+                        valid_turnovers.sort(key=lambda x: x[0], reverse=True)
+                        amount = valid_turnovers[0][0]
+                        
                         threshold = 50 * 100000
                         if amount >= threshold:
                             reason = f'Turnover verified: Rs. {amount/100000:.1f} Lakhs'

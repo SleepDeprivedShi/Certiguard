@@ -22,7 +22,7 @@ class RuleValidationResult:
 
 class RuleEngine:
     GSTIN_PATTERN = re.compile(
-        r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[0-9]{1}[A-Z]{1}$"
+        r"^[0-9]{2}[A-Z][A-Z0-9]{9,11}$"
     )
     PAN_PATTERN = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]{1}$")
 
@@ -40,10 +40,10 @@ class RuleEngine:
 
         gstin_clean = gstin.strip().upper().replace(" ", "").replace("-", "")
 
-        if len(gstin_clean) != 15:
-            return RuleValidationResult(False, ValidationResult.INVALID, f"GSTIN must be 15 chars", gstin_clean)
+        if len(gstin_clean) < 14 or len(gstin_clean) > 15:
+            return RuleValidationResult(False, ValidationResult.INVALID, f"GSTIN must be 14-15 chars", gstin_clean)
 
-        if gstin_clean[0:2].isdigit() and gstin_clean[-1:].isalpha():
+        if gstin_clean[0:2].isdigit():
             return RuleValidationResult(True, ValidationResult.VALID, "Valid", gstin_clean)
 
         return RuleValidationResult(False, ValidationResult.INVALID, "Invalid GSTIN format", gstin_clean)

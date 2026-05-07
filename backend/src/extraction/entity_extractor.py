@@ -7,9 +7,9 @@ from src.models.evidence import ExtractedEntity
 class EntityExtractor:
     _ENTITY_PATTERNS = {
         "company_name": r"[A-Z][A-Za-z\s]+(?:Pvt|Ltd|Private|Limited|Inc|Corporation)",
-        "gst_number": r"[0-9]{2}[A-Z]{1}[0-9]{10}[A-Z]{1}[0-9]{1}",
-        "pan_number": r"[A-Z]{5}[0-9]{4}[A-Z]{1}",
-        "gstin": r"[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[0-9]{1}",
+        "gst_number": r"(?:GSTIN|GST\s*IN)[:\s]*(\S+)",
+        "gstin": r"(?:GSTIN|GST\s*IN)[:\s]*(\S+)",
+        "pan_number": r"(?:PAN|PAN\s*Number)[:\s]*(\S+)",
         "email": r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}",
         "phone": r"(?:\+?91)?[6-9][0-9]{9}",
         "date": r"(?:[0-9]{1,2}[-/][0-9]{1,2}[-/][0-9]{2,4}|[0-9]{4}[-/][0-9]{2}[-/][0-9]{2})",
@@ -95,11 +95,43 @@ class EntityExtractor:
 
     def _extract_financial_value(self, text: str) -> Optional[ExtractedEntity]:
         pattern = r"(?:₹|Rs\.?|INR)?\s*(\d+(?:,\d+)*(?:\.\d+)?)\s*(Crore?|Lakh?|Lac|Million|Billion)?"
-        matches = re.findall(pattern, text, re.IGNORECASE)
+        
+        matches = list(re.finditer(pattern, text, re.IGNORECASE))
         if not matches:
             return None
-
-        value_str, unit = matches[0][0], matches[0][1] if len(matches[0]) > 1 else ""
+        
+        best_match = None
+        best_score = 0
+        
+        for match in matches:
+            value_str = match.group(1)
+            unit = match.group(2) if match.lastindex >= 2 else ""
+            
+            score = 0
+            
+            position = match.start()
+            text_before = text[max(0, position-50):position].lower()
+            
+            if 'turnover' in text_before:
+                score += 100
+            elif 'annual' in text_before:
+                score += 80
+            elif 'revenue' in text_before:
+                score += 70
+            elif 'income' in text_before:
+                score += 60
+                
+            if unit:
+                score += 20
+            
+            if score > best_score:
+                best_score = score
+                best_match = (value_str, unit)
+        
+        if not best_match:
+            best_match = (matches[0].group(1), matches[0].group(2) if matches[0].lastindex >= 2 else "")
+        
+        value_str, unit = best_match
         try:
             value = float(value_str.replace(",", ""))
             unit = unit.lower().strip() if unit else ""
@@ -131,9 +163,10 @@ class EntityExtractor:
 
         matches = re.findall(pattern, text, re.IGNORECASE)
         if matches:
+            value = matches[0].strip() if isinstance(matches[0], str) else matches[0][0].strip() if matches[0] else ""
             return ExtractedEntity(
                 entity_type=pattern_name,
-                value=matches[0].strip(),
+                value=value,
                 confidence=0.85,
             )
         return None
