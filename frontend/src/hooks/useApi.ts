@@ -77,3 +77,52 @@ export async function downloadReport(tenderId: string, format: string): Promise<
   })
   return data
 }
+
+export interface UploadStatus {
+  tender_id: string
+  tender_uploaded: boolean
+  tender_files: string[]
+  bidders_uploaded: number
+  bidder_files: string[]
+}
+
+export async function uploadTender(file: File, tenderId: string, tenderName: string): Promise<any> {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('tender_id', tenderId)
+  formData.append('tender_name', tenderName)
+  
+  const { data } = await api.post('/upload/tender', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+  return data
+}
+
+export async function uploadBidders(files: File[], tenderId: string): Promise<any> {
+  const formData = new FormData()
+  for (const file of files) {
+    formData.append('files', file)
+  }
+  formData.append('tender_id', tenderId)
+  
+  const { data } = await api.post('/upload/bidders', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+  return data
+}
+
+export async function processUploaded(tenderId: string, tenderName: string): Promise<any> {
+  const formData = new FormData()
+  formData.append('tender_id', tenderId)
+  formData.append('tender_name', tenderName)
+  
+  const { data } = await api.post('/upload/process', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+  return data
+}
+
+export async function getUploadStatus(tenderId: string): Promise<UploadStatus> {
+  const { data } = await api.get<UploadStatus>(`/upload/status/${tenderId}`)
+  return data
+}

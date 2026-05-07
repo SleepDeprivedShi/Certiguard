@@ -4,8 +4,8 @@ import sys
 import os
 import json
 from datetime import datetime
-from typing import Optional, Dict, Any
-from fastapi import FastAPI, HTTPException, Query, UploadFile, File, BackgroundTasks
+from typing import Optional, Dict, Any, List
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pathlib import Path
@@ -226,6 +226,115 @@ def process_tender_get(
 ):
     """Process a tender using GET request."""
     return process_tender(tender_id, tender_name, None)
+
+
+@app.post("/api/v1/upload/tender")
+async def upload_tender(
+    file: UploadFile = File(...),
+    tender_id: str = Form(...),
+    tender_name: str = Form(...)
+):
+    """Upload a tender document."""
+    upload_dir = Path("uploads") / tender_id / "tender"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    
+    file_path = upload_dir / file.filename
+    content = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(content)
+    
+    return {
+        "status": "uploaded",
+        "tender_id": tender_id,
+        "tender_name": tender_name,
+        "file_path": str(file_path),
+        "message": "Tender uploaded successfully. Now upload bidder documents."
+    }
+
+
+@app.post("/api/v1/upload/bidders")
+async def upload_bidders(
+    files: List[UploadFile] = File(...),
+    tender_id: str = Form(...)
+):
+    """Upload bidder documents."""
+    upload_dir = Path("uploads") / tender_id / "bidders"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    
+    uploaded = []
+    for file in files:
+        file_path = upload_dir / file.filename
+        content = await file.read()
+        with open(file_path, "wb") as f:
+            f.write(content)
+        uploaded.append(file.filename)
+    
+    return {
+        "status": "uploaded",
+        "tender_id": tender_id,
+        "files": uploaded,
+        "message": f"Uploaded {len(uploaded)} bidder documents. Ready to process."
+    }
+
+
+@app.post("/api/v1/upload/process")
+async def process_uploaded(
+    tender_id: str = Form(...),
+    tender_name: str = Form(...)
+):
+    """Process uploaded tender and bidder documents."""
+    tender_path = Path("uploads") / tender_id / "tender"
+    bidders_dir = Path("uploads") / tender_id / "bidders"
+    output_dir = Path("uploads") / tender_id / "output"
+    
+    # Find tender PDF
+    tender_files = list(tender_path.glob("*.pdf"))
+    if not tender_files:
+        return {"error": "No tender document found"}
+    
+    # Run pipeline
+    try:
+        from backend.src.pipeline.main import run_pipeline
+        result = run_pipeline(
+            tender_id=tender_id,
+            tender_path=str(tender_files[0]),
+            bidders_dir=str(bidders_dir),
+            output_dir=str(output_dir)
+        )
+        
+        PROCESSED_RESULTS[tender_id] = result
+        
+        return {
+            "status": "processed",
+            "tender_id": tender_id,
+            "bidders_count": len(result.get("bidders", [])),
+            "result": result
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/v1/upload/status/{tender_id}")
+def get_upload_status(tender_id: str):
+    """Check what's been uploaded for a tender."""
+    upload_dir = Path("uploads") / tender_id
+    
+    tender_files = []
+    bidder_files = []
+    
+    if (upload_dir / "tender").exists():
+        tender_files = [f.name for f in (upload_dir / "tender").glob("*.pdf")]
+    
+    if (upload_dir / "bidders").exists():
+        bidder_files = [f.name for f in (upload_dir / "bidders").glob("*.pdf")]
+    
+    return {
+        "tender_id": tender_id,
+        "tender_uploaded": len(tender_files) > 0,
+        "tender_files": tender_files,
+        "bidders_uploaded": len(bidder_files),
+        "bidder_files": bidder_files
+    }
 
 
 def create_sample_tender(tender_id: str, tender_name: str, filepath: str):

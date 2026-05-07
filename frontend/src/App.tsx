@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard'
 import ReviewQueue from './pages/ReviewQueue'
 import SideBySide from './pages/SideBySide'
 import ReportViewer from './pages/ReportViewer'
+import UploadPage from './pages/UploadPage'
 
 export default function App() {
   const [selectedTender, setSelectedTender] = useState<string>('')
@@ -19,6 +20,7 @@ export default function App() {
             <Route path="/queue" element={<ReviewQueue tenderId={selectedTender} />} />
             <Route path="/review/:bidderId" element={<SideBySide tenderId={selectedTender} />} />
             <Route path="/report" element={<ReportViewer tenderId={selectedTender} />} />
+            <Route path="/upload" element={<UploadPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
