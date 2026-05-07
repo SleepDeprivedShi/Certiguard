@@ -9,6 +9,7 @@ interface Criterion {
   nature: string
   threshold?: number | string
   unit?: string
+  confidence?: number
 }
 
 export default function CriteriaReviewPage() {
@@ -115,6 +116,7 @@ export default function CriteriaReviewPage() {
               <th className="px-4 py-3 text-left text-sm font-semibold text-slate-700">Label</th>
               <th className="px-4 py-3 text-left text-sm font-semibold text-slate-700">Type</th>
               <th className="px-4 py-3 text-left text-sm font-semibold text-slate-700">Nature</th>
+              <th className="px-4 py-3 text-left text-sm font-semibold text-slate-700">Confidence</th>
               <th className="px-4 py-3 text-left text-sm font-semibold text-slate-700">Threshold</th>
             </tr>
           </thead>
@@ -155,6 +157,17 @@ export default function CriteriaReviewPage() {
                   }`}>
                     {crit.nature}
                   </span>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-16 bg-slate-200 rounded-full h-2">
+                      <div 
+                        className="bg-green-500 h-2 rounded-full" 
+                        style={{ width: `${(crit.confidence || 0.8) * 100}%` }}
+                      ></div>
+                    </div>
+                    <span className="text-xs text-slate-600">{Math.round((crit.confidence || 0.8) * 100)}%</span>
+                  </div>
                 </td>
                 <td className="px-4 py-3">
                   <input

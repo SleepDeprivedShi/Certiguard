@@ -30,6 +30,23 @@ TENDERS_LIST = [
     {"tender_id": "T003", "tender_name": "CRPF IT Equipment 2026", "bidder_count": 5, "status": "active", "submission_deadline": "2026-07-01"},
 ]
 
+AI_PROVIDER = "openai"
+AI_API_KEY = ""
+AI_INITIALIZED = False
+
+# Initialize AI on startup (will be triggered when user configures)
+def init_ai():
+    global AI_INITIALIZED
+    if AI_API_KEY:
+        try:
+            sys.path.insert(0, os.path.dirname(__file__) + "/backend")
+            from src.extraction.ai_entity_extractor import init_ai_extractor
+            init_ai_extractor(AI_API_KEY, AI_PROVIDER)
+            AI_INITIALIZED = True
+            print(f"[Main] AI initialized with {AI_PROVIDER}")
+        except Exception as e:
+            print(f"[Main] Failed to initialize AI: {e}")
+
 
 # ============ Models ============
 
@@ -72,6 +89,30 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
+
+@app.get("/debug/routes")
+def list_routes():
+    routes = []
+    for route in app.routes:
+        if hasattr(route, 'path'):
+            methods = getattr(route, 'methods', set())
+            routes.append({"path": route.path, "methods": list(methods) if methods else []})
+    return {"routes": sorted(routes, key=lambda x: x['path'])}
+
+
+@app.post("/api/v1/config/ai")
+def configure_ai(api_key: str = Query(...), provider: str = Query("openai")):
+    global AI_API_KEY, AI_PROVIDER, AI_INITIALIZED
+    AI_API_KEY = api_key
+    AI_PROVIDER = provider
+    init_ai()
+    return {"status": "configured", "provider": provider, "message": "AI extractor initialized"}
+
+
+@app.get("/api/v1/config/ai")
+def get_ai_status():
+    return {"initialized": AI_INITIALIZED, "provider": AI_PROVIDER if AI_INITIALIZED else None, "message": "AI ready" if AI_INITIALIZED else "Not configured"}
 
 
 @app.get("/api/v1/tenders")
@@ -314,6 +355,12 @@ async def process_uploaded(
                 "status": "active",
                 "submission_deadline": result.get("submission_deadline", "2026-12-31")
             })
+        else:
+            for t in TENDERS_LIST:
+                if t["tender_id"] == tender_id:
+                    t["status"] = "active"
+                    t["bidder_count"] = len(result.get("bidders", []))
+                    break
         
         return {
             "status": "processed",
@@ -396,6 +443,7 @@ def get_criteria(tender_id: str):
 @app.post("/api/v1/criteria/{tender_id}/approve")
 def approve_criteria(tender_id: str, officer_id: str = Query(...), officer_name: str = Query(...), signature: str = Query(...)):
     """Approve extracted criteria before final evaluation."""
+    print(f"[DEBUG] approve_criteria called: tender_id={tender_id}, officer_id={officer_id}")
     if tender_id not in PROCESSED_RESULTS:
         return {"error": "Tender not processed"}
     
@@ -415,10 +463,13 @@ def approve_criteria(tender_id: str, officer_id: str = Query(...), officer_name:
 
 
 @app.post("/api/v1/criteria/{tender_id}/update")
-def update_criteria(tender_id: str, criteria: List[Dict]):
+def update_criteria(tender_id: str, criteria: List[Dict] = None):
     """Update criteria (edit before approval)."""
     if tender_id not in PROCESSED_RESULTS:
         return {"error": "Tender not processed"}
+    
+    if criteria is None:
+        return {"error": "Criteria body is required"}
     
     PROCESSED_RESULTS[tender_id]["criteria"] = criteria
     PROCESSED_RESULTS[tender_id]["criteria_approved"] = False
@@ -498,7 +549,25 @@ def create_sample_tender(tender_id: str, tender_name: str, filepath: str):
 
 
 @app.post("/api/v1/override/apply")
-def apply_override(override: OverrideInput):
+def apply_override(
+    criterion_id: str = Query(...),
+    bidder_id: str = Query(...),
+    override_verdict: str = Query(...),
+    officer_id: str = Query(...),
+    officer_name: str = Query(...),
+    rationale: str = Query(...),
+    signature: str = Query(...)
+):
+    override = OverrideInput(
+        criterion_id=criterion_id,
+        bidder_id=bidder_id,
+        override_verdict=override_verdict,
+        officer_id=officer_id,
+        officer_name=officer_name,
+        rationale=rationale,
+        signature=signature
+    )
+    print(f"Received override: {override}")
     # Find the tender that has this bidder and update the verdict
     updated_tender = None
     for tender_id, result in PROCESSED_RESULTS.items():

@@ -140,7 +140,34 @@ class CertiGuardPipeline:
     def __init__(self, config: PipelineConfig):
         self.config = config
         self.ocr = OCRProcessor()
-        self.entity_extractor = EnhancedEntityExtractor()
+        
+        # Try AI extractor first, then ML, then regex
+        self.entity_extractor = None
+        
+        # Try AI extractor
+        try:
+            from src.extraction.ai_entity_extractor import ai_entity_extractor
+            if ai_entity_extractor and ai_entity_extractor.api_key:
+                self.entity_extractor = ai_entity_extractor
+                print("[Pipeline] Using AI/LLM Entity Extractor (GPT/Gemma)")
+        except:
+            pass
+        
+        # Fallback to ML
+        if not self.entity_extractor:
+            try:
+                from src.extraction.ml_entity_extractor import ml_entity_extractor
+                self.entity_extractor = ml_entity_extractor
+                print("[Pipeline] Using ML-based Entity Extractor")
+            except Exception as e:
+                print(f"[Pipeline] ML extractor failed: {e}")
+        
+        # Final fallback to regex
+        if not self.entity_extractor:
+            from src.extraction.entity_extractor import EnhancedEntityExtractor
+            self.entity_extractor = EnhancedEntityExtractor()
+            print("[Pipeline] Using Regex Entity Extractor")
+        
         self.rule_engine = RuleEngine()
         self.identity_binder = IdentityBinder()
         self.temporal_validator = TemporalValidator()
@@ -301,6 +328,22 @@ class CertiGuardPipeline:
             try:
                 text = self.ocr.extract_text(tender_file)
                 if text:
+                    # Try AI first
+                    try:
+                        from src.extraction.ai_entity_extractor import ai_criteria_extractor
+                        if ai_criteria_extractor and ai_criteria_extractor.ai_extractor.api_key:
+                            ai_criteria = ai_criteria_extractor.extract_criteria(text)
+                            if ai_criteria:
+                                print(f"[AI] Extracted {len(ai_criteria)} criteria using LLM")
+                                return {
+                                    'name': 'Tender Document',
+                                    'deadline': '2026-12-31',
+                                    'criteria': ai_criteria
+                                }
+                    except Exception as e:
+                        print(f"[AI] Criteria extraction failed: {e}")
+                    
+                    # Fallback to ML
                     parsed_criteria = self._parse_tender_criteria(text)
                     if parsed_criteria:
                         return parsed_criteria
@@ -325,7 +368,23 @@ class CertiGuardPipeline:
         }
 
     def _parse_tender_criteria(self, text: str) -> Dict[str, Any]:
-        """Parse eligibility criteria from tender document text."""
+        """Parse eligibility criteria from tender document text using ML."""
+        
+        # Try ML-based extraction first
+        try:
+            from src.extraction.ml_entity_extractor import ml_criteria_extractor
+            ml_criteria = ml_criteria_extractor.extract_criteria(text)
+            if ml_criteria:
+                print(f"[ML] Extracted {len(ml_criteria)} criteria using ML")
+                return {
+                    'name': 'Tender Document',
+                    'deadline': '2026-12-31',
+                    'criteria': ml_criteria
+                }
+        except Exception as e:
+            print(f"[ML] Criteria extraction failed: {e}")
+        
+        # Fall back to regex-based (original implementation)
         criteria = []
         criterion_id = 1
         
@@ -667,3 +726,218 @@ if __name__ == "__main__":
     result = run_pipeline(args.tender_id, args.tender_path, args.bidders_dir, args.output_dir)
     print("\n=== RESULT ===")
     print(json.dumps(result, indent=2))
+
+
+if __name__ != "__main__":
+    from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
+    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import JSONResponse, FileResponse
+    from pydantic import BaseModel
+    from typing import Optional, List
+    import tempfile
+    from pathlib import Path
+
+    app = FastAPI(title="CertiGuard API", version="1.0.0")
+    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+    PROCESSED_RESULTS = {}
+
+    MOCK_TENDERS = {
+        "T001": {"tender_id": "T001", "tender_name": "CRPF Uniform Supply 2026", "bidder_count": 3, "status": "COMPLETED", "submission_deadline": "2026-12-31"},
+        "T002": {"tender_id": "T002", "tender_name": "CRPF Security Services 2026", "bidder_count": 3, "status": "IN_PROGRESS", "submission_deadline": "2026-06-30"}
+    }
+
+    MOCK_BIDDER_RESULTS = {
+        "T001": [
+            {"bidder_id": "B001", "bidder_name": "Alpha Textiles Pvt Ltd", "criterion_results": [
+                {"criterion_id": "C001", "criterion_label": "Valid GST Registration", "verdict": "ELIGIBLE", "ai_confidence": 0.95, "verification_checks": [{"check_name": "GSTIN Format", "passed": True, "detail": "Valid", "confidence": 0.95}], "yellow_flags": None, "evidence_refs": ["gstin"], "reason": "Valid GSTIN"},
+                {"criterion_id": "C002", "criterion_label": "Minimum Experience", "verdict": "ELIGIBLE", "ai_confidence": 0.85, "verification_checks": [{"check_name": "Experience", "passed": True, "detail": "5 years", "confidence": 0.85}], "yellow_flags": None, "evidence_refs": ["experience"], "reason": "5 years verified"},
+                {"criterion_id": "C003", "criterion_label": "Annual Turnover", "verdict": "ELIGIBLE", "ai_confidence": 0.88, "verification_checks": [{"check_name": "Turnover", "passed": True, "detail": "75L", "confidence": 0.88}], "yellow_flags": None, "evidence_refs": ["turnover"], "reason": "Rs. 75 Lakhs"},
+                {"criterion_id": "C004", "criterion_label": "Quality Certification", "verdict": "ELIGIBLE", "ai_confidence": 0.90, "verification_checks": [{"check_name": "Cert", "passed": True, "detail": "ISO 9001", "confidence": 0.90}], "yellow_flags": None, "evidence_refs": ["cert"], "reason": "Valid ISO"}
+            ], "overall_verdict": "ELIGIBLE", "overall_confidence": 0.90, "verdict_reason": "All criteria met"},
+            {"bidder_id": "B002", "bidder_name": "Beta Garments Industries", "criterion_results": [
+                {"criterion_id": "C001", "criterion_label": "Valid GST Registration", "verdict": "NOT_ELIGIBLE", "ai_confidence": 0.95, "verification_checks": [{"check_name": "GSTIN", "passed": False, "detail": "Expired", "confidence": 0.95}], "yellow_flags": None, "evidence_refs": ["gstin"], "reason": "GST expired"},
+                {"criterion_id": "C002", "criterion_label": "Minimum Experience", "verdict": "ELIGIBLE", "ai_confidence": 0.82, "verification_checks": [{"check_name": "Experience", "passed": True, "detail": "4 years", "confidence": 0.82}], "yellow_flags": None, "evidence_refs": [], "reason": "4 years"},
+                {"criterion_id": "C003", "criterion_label": "Annual Turnover", "verdict": "ELIGIBLE", "ai_confidence": 0.85, "verification_checks": [{"check_name": "Turnover", "passed": True, "detail": "60L", "confidence": 0.85}], "yellow_flags": None, "evidence_refs": [], "reason": "Rs. 60 Lakhs"},
+                {"criterion_id": "C004", "criterion_label": "Quality Certification", "verdict": "ELIGIBLE", "ai_confidence": 0.88, "verification_checks": [{"check_name": "Cert", "passed": True, "detail": "ISO", "confidence": 0.88}], "yellow_flags": None, "evidence_refs": [], "reason": "ISO certified"}
+            ], "overall_verdict": "NOT_ELIGIBLE", "overall_confidence": 0.90, "verdict_reason": "Failed GST criterion"},
+            {"bidder_id": "B003", "bidder_name": "Gamma Industries Ltd", "criterion_results": [
+                {"criterion_id": "C001", "criterion_label": "Valid GST Registration", "verdict": "ELIGIBLE", "ai_confidence": 0.93, "verification_checks": [{"check_name": "GST", "passed": True, "detail": "Valid", "confidence": 0.93}], "yellow_flags": None, "evidence_refs": ["gstin"], "reason": "Valid GSTIN"},
+                {"criterion_id": "C002", "criterion_label": "Minimum Experience", "verdict": "NEEDS_REVIEW", "ai_confidence": 0.60, "verification_checks": [{"check_name": "Experience", "passed": False, "detail": "Borderline", "confidence": 0.60}], "yellow_flags": [{"trigger_type": "AMBIGUOUS_VALUE", "reason": "Exactly 3 years", "affected_entity": "experience", "confidence_delta": -0.25}], "evidence_refs": [], "reason": "Borderline"},
+                {"criterion_id": "C003", "criterion_label": "Annual Turnover", "verdict": "NEEDS_REVIEW", "ai_confidence": 0.55, "verification_checks": [{"check_name": "Turnover", "passed": False, "detail": "Below threshold", "confidence": 0.55}], "yellow_flags": [{"trigger_type": "BELOW_THRESHOLD", "reason": "45L below 50L", "affected_entity": "turnover", "confidence_delta": -0.30}], "evidence_refs": [], "reason": "Below 50L"},
+                {"criterion_id": "C004", "criterion_label": "Quality Certification", "verdict": "ELIGIBLE", "ai_confidence": 0.85, "verification_checks": [{"check_name": "Cert", "passed": True, "detail": "ISO", "confidence": 0.85}], "yellow_flags": None, "evidence_refs": [], "reason": "ISO certified"}
+            ], "overall_verdict": "NEEDS_REVIEW", "overall_confidence": 0.64, "verdict_reason": "2 criteria need review"}
+        ]
+    }
+
+    def _load_results(tender_id: str):
+        if tender_id in PROCESSED_RESULTS:
+            return PROCESSED_RESULTS[tender_id]
+        results_file = Path(f"test_data/output/{tender_id}_results.json")
+        if results_file.exists():
+            with open(results_file) as f:
+                return json.load(f)
+        return None
+
+    def _calculate_summary(bidders):
+        summary = {"eligible": 0, "not_eligible": 0, "needs_review": 0, "total": len(bidders)}
+        for b in bidders:
+            v = b.get("overall_verdict", "NEEDS_REVIEW").lower().replace(" ", "_")
+            if v in summary:
+                summary[v] += 1
+        return summary
+
+    @app.get("/")
+    async def root():
+        return {"message": "CertiGuard API v1.0", "status": "running"}
+
+    @app.get("/health")
+    async def health():
+        return {"status": "healthy"}
+
+    @app.get("/api/v1/tenders")
+    async def get_tenders():
+        tenders = list(MOCK_TENDERS.values())
+        for t in tenders:
+            results = _load_results(t["tender_id"])
+            if results and "bidders" in results:
+                t["bidder_count"] = len(results["bidders"])
+                t["status"] = "COMPLETED"
+        return tenders
+
+    @app.get("/api/v1/tenders/{tender_id}")
+    async def get_tender_detail(tender_id: str):
+        base = MOCK_TENDERS.get(tender_id, MOCK_TENDERS.get("T001", {}))
+        results = _load_results(tender_id)
+        criteria = results.get("criteria", []) if results else [
+            {"id": "C001", "label": "Valid GST Registration", "type": "compliance", "nature": "MANDATORY"},
+            {"id": "C002", "label": "Minimum Experience", "type": "technical", "nature": "MANDATORY"},
+            {"id": "C003", "label": "Annual Turnover", "type": "financial", "nature": "DESIRABLE"},
+            {"id": "C004", "label": "Quality Certification", "type": "compliance", "nature": "DESIRABLE"},
+        ]
+        return {"tender_id": tender_id, "tender_name": base.get("tender_name", f"Tender {tender_id}"), "submission_deadline": base.get("submission_deadline", ""), "status": base.get("status", "PENDING"), "bidder_count": base.get("bidder_count", 0), "criteria": criteria, "criteria_extracted": bool(results)}
+
+    @app.get("/api/v1/review/queue")
+    async def get_review_queue(tender_id: str = Query(...)):
+        base = MOCK_TENDERS.get(tender_id, MOCK_TENDERS.get("T001", {}))
+        results = _load_results(tender_id)
+        if results:
+            bidders = results.get("bidders", [])
+        else:
+            bidders = MOCK_BIDDER_RESULTS.get(tender_id, [])
+        return {"tender_id": tender_id, "tender_name": base.get("tender_name", ""), "submission_deadline": base.get("submission_deadline", ""), "bidders": bidders, "total_bidders": len(bidders), "summary": _calculate_summary(bidders)}
+
+    @app.get("/api/v1/review/criterion/{criterion_id}")
+    async def get_criterion_detail(criterion_id: str, tender_id: str = Query(...)):
+        results = _load_results(tender_id)
+        if results:
+            bidders = results.get("bidders", [])
+        else:
+            bidders = MOCK_BIDDER_RESULTS.get(tender_id, [])
+        criterion_results = []
+        for b in bidders:
+            for c in b.get("criterion_results", []):
+                if c["criterion_id"] == criterion_id:
+                    criterion_results.append({"bidder_id": b["bidder_id"], "bidder_name": b["bidder_name"], **c})
+        return {"criterion_id": criterion_id, "tender_id": tender_id, "results": criterion_results}
+
+    @app.get("/api/v1/report/generate")
+    async def generate_report(tender_id: str = Query(...), format: str = Query("pdf")):
+        base = MOCK_TENDERS.get(tender_id, MOCK_TENDERS.get("T001", {}))
+        results = _load_results(tender_id)
+        if results:
+            bidders = results.get("bidders", [])
+        else:
+            bidders = MOCK_BIDDER_RESULTS.get(tender_id, [])
+        if not bidders:
+            raise HTTPException(status_code=404, detail="No results found")
+        tender_name = base.get("tender_name", f"Tender {tender_id}")
+        if format == "json":
+            return JSONResponse(content={"tender_id": tender_id, "tender_name": tender_name, "generated_at": datetime.now().isoformat(), "bidders": bidders, "summary": _calculate_summary(bidders)})
+        else:
+            from src.audit.report_generator import report_generator
+            with tempfile.NamedTemporaryFile(suffix=f".{format}" if format != "pdf" else ".pdf", delete=False) as tmp:
+                temp_path = tmp.name
+            success = report_generator.generate_pdf(tender_id, bidders, temp_path)
+            if not success:
+                raise HTTPException(status_code=500, detail="PDF generation failed")
+            return FileResponse(temp_path, media_type="application/pdf", filename=f"{tender_id}_report.pdf")
+
+    @app.get("/api/v1/report/download/{format}")
+    async def download_report(format: str, tender_id: str = Query(...)):
+        return await generate_report(tender_id, format)
+
+    @app.get("/api/v1/criteria/{tender_id}")
+    async def get_criteria(tender_id: str):
+        results = _load_results(tender_id)
+        if results:
+            return {"tender_id": tender_id, "criteria": results.get("criteria", []), "criteria_approved": results.get("criteria_approved", False), "sign_off": results.get("sign_off")}
+        return {"tender_id": tender_id, "criteria": [{"id": "C001", "label": "Valid GST Registration", "type": "compliance", "nature": "MANDATORY"}, {"id": "C002", "label": "Minimum Experience", "type": "technical", "nature": "MANDATORY"}, {"id": "C003", "label": "Annual Turnover", "type": "financial", "nature": "DESIRABLE"}, {"id": "C004", "label": "Quality Certification", "type": "compliance", "nature": "DESIRABLE"}], "criteria_approved": False, "sign_off": None}
+
+    @app.post("/api/v1/override/apply")
+    async def apply_override(officer_id: str = Query(...), officer_name: str = Query(...), rationale: str = Query(...), signature: str = Query(...)):
+        return {"record_id": f"AUDIT_{datetime.now().strftime('%Y%m%d%H%M%S')}", "timestamp": datetime.now().isoformat(), "human_override": {"officer_id": officer_id, "officer_name": officer_name, "rationale": rationale, "signature": signature}}
+
+    UPLOAD_DIR = Path("uploads")
+    UPLOAD_DIR.mkdir(exist_ok=True)
+
+    @app.get("/api/v1/upload/status/{tender_id}")
+    async def get_upload_status(tender_id: str):
+        tender_dir = UPLOAD_DIR / tender_id
+        tender_uploaded = (tender_dir / "tender.pdf").exists()
+        bidder_files = []
+        if tender_dir.exists():
+            for f in tender_dir.glob("*.pdf"):
+                if f.name != "tender.pdf":
+                    bidder_files.append(f.name)
+        return {"tender_id": tender_id, "tender_uploaded": tender_uploaded, "tender_files": ["tender.pdf"] if tender_uploaded else [], "bidders_uploaded": len(set(f.split("_")[0] for f in bidder_files if "_" in f)), "bidder_files": bidder_files}
+
+    @app.post("/api/v1/upload/tender")
+    async def upload_tender(tender_id: str = Form(...), tender_name: str = Form(...), file: UploadFile = File(...)):
+        tender_dir = UPLOAD_DIR / tender_id
+        tender_dir.mkdir(parents=True, exist_ok=True)
+        file_path = tender_dir / "tender.pdf"
+        with open(file_path, "wb") as f:
+            f.write(await file.read())
+        return {"tender_id": tender_id, "tender_name": tender_name, "file_path": str(file_path), "uploaded": True}
+
+    @app.post("/api/v1/upload/bidders")
+    async def upload_bidders(tender_id: str = Form(...), files: List[UploadFile] = File(...)):
+        tender_dir = UPLOAD_DIR / tender_id
+        tender_dir.mkdir(parents=True, exist_ok=True)
+        bidder_files = {}
+        for file in files:
+            file_path = tender_dir / file.filename
+            with open(file_path, "wb") as f:
+                f.write(await file.read())
+            bidder_id = file.filename.split("_")[0]
+            if bidder_id not in bidder_files:
+                bidder_files[bidder_id] = []
+            bidder_files[bidder_id].append(file.filename)
+        return {"tender_id": tender_id, "total_files": len(files), "bidders": list(bidder_files.keys()), "uploaded": True}
+
+    @app.post("/api/v1/upload/process")
+    async def process_uploaded(tender_id: str = Form(...), tender_name: str = Form(...)):
+        tender_dir = UPLOAD_DIR / tender_id
+        tender_file = tender_dir / "tender.pdf"
+        if not tender_file.exists():
+            raise HTTPException(status_code=400, detail="Tender file not found")
+        tender_path = str(tender_file)
+        bidders_dir = str(tender_dir)
+        output_dir = str(tender_dir / "output")
+        try:
+            result = run_pipeline(tender_id, tender_path, bidders_dir, output_dir)
+            PROCESSED_RESULTS[tender_id] = result
+            return {"tender_id": tender_id, "status": "completed", "total_bidders": len(result.get("bidders", [])), "results": result}
+        except Exception as e:
+            return {"tender_id": tender_id, "status": "failed", "error": str(e)}
+
+    @app.get("/api/v1/config/ai")
+    async def get_ai_config():
+        return {"extractor": "AI", "model": "gpt-4o-mini", "available": False}
+
+    @app.post("/api/v1/process/tender")
+    async def process_tender(tender_id: str = Query(...), tender_path: str = Query(...), bidders_dir: str = Query(...), output_dir: str = Query(...)):
+        result = run_pipeline(tender_id, tender_path, bidders_dir, output_dir)
+        PROCESSED_RESULTS[tender_id] = result
+        return result

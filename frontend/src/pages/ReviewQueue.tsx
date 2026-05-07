@@ -15,16 +15,18 @@ export default function ReviewQueue({ tenderId }: ReviewQueueProps) {
   const [data, setData] = useState<VerdictOutput | null>(null)
   const [tenderDetail, setTenderDetail] = useState<TenderDetail | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<'ALL' | 'NEEDS_REVIEW' | 'ELIGIBLE' | 'NOT_ELIGIBLE'>('ALL')
   const [search, setSearch] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
-    if (!tenderId) {
+    if (!tenderId || tenderId === '') {
       setLoading(false)
       return
     }
     setLoading(true)
+    setError(null)
     
     // Fetch both tender detail and review queue
     Promise.all([
@@ -37,6 +39,7 @@ export default function ReviewQueue({ tenderId }: ReviewQueueProps) {
       })
       .catch(err => {
         console.error('Failed to fetch data:', err)
+        setError(err.message || 'Failed to load review queue')
         getReviewQueue(tenderId).then(setData).catch(console.error)
       })
       .finally(() => setLoading(false))
@@ -50,13 +53,13 @@ export default function ReviewQueue({ tenderId }: ReviewQueueProps) {
     }
   }, [location])
 
-  const filteredBidders = data?.bidders.filter((b) => {
+  const filteredBidders = data?.bidders?.filter((b) => {
     const matchesFilter = filter === 'ALL' || b.overall_verdict === filter
-    const matchesSearch = b.bidder_name.toLowerCase().includes(search.toLowerCase())
+    const matchesSearch = b.bidder_name?.toLowerCase().includes(search.toLowerCase())
     return matchesFilter && matchesSearch
   }) || []
 
-  if (!tenderId) {
+  if (!tenderId || tenderId === '') {
     return (
       <div className="text-center py-12">
         <p className="text-slate-500">Select a tender from the Dashboard to view the review queue.</p>
@@ -66,6 +69,17 @@ export default function ReviewQueue({ tenderId }: ReviewQueueProps) {
 
   if (loading) {
     return <div className="text-center py-12 text-slate-500">Loading...</div>
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-red-500">Error: {error}</p>
+        <button onClick={() => setRefreshKey(k => k + 1)} className="mt-4 px-4 py-2 bg-blue-500 text-white rounded">
+          Retry
+        </button>
+      </div>
+    )
   }
 
   return (
@@ -123,7 +137,7 @@ export default function ReviewQueue({ tenderId }: ReviewQueueProps) {
       <div className="bg-white rounded-xl shadow-sm border border-slate-200">
         <div className="p-4 border-b border-slate-200 flex justify-between items-center">
           <span className="text-sm text-slate-600">{filteredBidders.length} bidders</span>
-          {data?.yellow_flag_summary.total ? (
+          {data?.yellow_flag_summary?.total ? (
             <YellowFlagBadge count={data.yellow_flag_summary.total} />
           ) : null}
         </div>

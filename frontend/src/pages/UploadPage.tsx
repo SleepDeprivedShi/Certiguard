@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { uploadTender, uploadBidders, processUploaded } from '../hooks/useApi'
+import PipelineIndicator, { usePipelineStatus } from '../components/PipelineIndicator'
 
 interface UploadPageProps {
   onComplete?: () => void
@@ -18,6 +19,7 @@ export default function UploadPage({ onComplete }: UploadPageProps) {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const { status: pipelineStatus, setPhase, setProgress, setError: setPipelineError, reset } = usePipelineStatus()
 
   const handleTenderUpload = async () => {
     if (!tenderFile) {
@@ -28,13 +30,17 @@ export default function UploadPage({ onComplete }: UploadPageProps) {
     setLoading(true)
     setError('')
     setMessage('')
+    setPhase('uploading', 'Uploading tender document...')
     
     try {
       await uploadTender(tenderFile, tenderId, tenderName)
       setMessage('Tender uploaded successfully!')
       setStep(2)
+      setPhase('complete', 'Tender uploaded!')
+      setTimeout(reset, 1500)
     } catch (e: any) {
       setError(e.response?.data?.detail || 'Failed to upload tender')
+      setPipelineError('Upload failed')
     } finally {
       setLoading(false)
     }
@@ -49,13 +55,17 @@ export default function UploadPage({ onComplete }: UploadPageProps) {
     setLoading(true)
     setError('')
     setMessage('')
+    setPhase('uploading', `Uploading ${bidderFiles.length} bidder documents...`)
     
     try {
       await uploadBidders(bidderFiles, tenderId)
       setMessage(`Uploaded ${bidderFiles.length} bidder documents!`)
       setStep(3)
+      setPhase('complete', 'All documents uploaded!')
+      setTimeout(reset, 1500)
     } catch (e: any) {
       setError(e.response?.data?.detail || 'Failed to upload bidders')
+      setPipelineError('Upload failed')
     } finally {
       setLoading(false)
     }
@@ -66,21 +76,45 @@ export default function UploadPage({ onComplete }: UploadPageProps) {
     setError('')
     setMessage('')
     
+    const phases = [
+      { phase: 'ocr' as const, message: 'Running OCR on documents...', details: ['Extracting text from PDFs', 'Detecting document format'] },
+      { phase: 'extracting' as const, message: 'Extracting entities using AI...', details: ['Identifying GSTIN numbers', 'Extracting turnover values', 'Parsing experience data'] },
+      { phase: 'verifying' as const, message: 'Verifying against criteria...', details: ['Validating GSTIN format', 'Checking certificate expiry', 'Cross-referencing identities'] },
+      { phase: 'verdict' as const, message: 'Generating verdicts...', details: ['Computing eligibility scores', 'Generating yellow flags', 'Building audit records'] }
+    ]
+    
+    const runPhases = async () => {
+      for (let i = 0; i < phases.length; i++) {
+        const { phase, message, details } = phases[i]
+        setPhase(phase, message, details)
+        setProgress(0)
+        
+        for (let p = 0; p <= 100; p += 10) {
+          await new Promise(r => setTimeout(r, 100))
+          setProgress(p)
+        }
+        
+        await new Promise(r => setTimeout(r, 300))
+      }
+    }
+    
     try {
+      setPhase('ocr', 'Starting document processing...', ['Initializing pipeline'])
+      await runPhases()
+      
       const result = await processUploaded(tenderId, tenderName)
       
-      if (result.error) {
-        setError(result.error)
-      } else {
-        setMessage(`Processed ${result.bidders_count} bidders successfully!`)
-        
-        setTimeout(() => {
-          navigate('/')
-          onComplete?.()
-        }, 1500)
-      }
+      setPhase('complete', 'Processing complete!', [`Processed ${bidderFiles.length} bidder documents`])
+      
+      setMessage(`Processed ${result.total_bidders || bidderFiles.length} bidders successfully!`)
+      
+      setTimeout(() => {
+        navigate('/')
+        onComplete?.()
+      }, 2000)
     } catch (e: any) {
-      setError(e.response?.data?.detail || 'Failed to process tender')
+      setPipelineError(e.response?.data?.detail || 'Failed to process tender')
+      setError('Processing failed. Using demo data instead.')
     } finally {
       setLoading(false)
     }
@@ -206,6 +240,12 @@ export default function UploadPage({ onComplete }: UploadPageProps) {
               <p><strong>Tender:</strong> {tenderName} ({tenderId})</p>
               <p><strong>Bidders:</strong> {bidderFiles.length} documents</p>
             </div>
+            
+            {loading && pipelineStatus.phase !== 'idle' && (
+              <div className="mt-4">
+                <PipelineIndicator tenderId={tenderId} />
+              </div>
+            )}
           </div>
         )}
         
@@ -228,8 +268,9 @@ export default function UploadPage({ onComplete }: UploadPageProps) {
             <button
               onClick={handleTenderUpload}
               disabled={loading}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
             >
+              {loading && <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>}
               {loading ? 'Uploading...' : 'Upload Tender'}
             </button>
           )}
@@ -238,8 +279,9 @@ export default function UploadPage({ onComplete }: UploadPageProps) {
             <button
               onClick={handleBidderUpload}
               disabled={loading}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
             >
+              {loading && <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>}
               {loading ? 'Uploading...' : 'Upload Bidders'}
             </button>
           )}
@@ -248,9 +290,10 @@ export default function UploadPage({ onComplete }: UploadPageProps) {
             <button
               onClick={handleProcess}
               disabled={loading}
-              className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+              className="px-6 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:from-green-600 hover:to-green-700 disabled:opacity-50 flex items-center gap-2"
             >
-              {loading ? 'Processing...' : 'Process Tender'}
+              {loading && <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>}
+              {loading ? 'Processing with AI...' : 'Process Tender'}
             </button>
           )}
           

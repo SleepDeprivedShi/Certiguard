@@ -17,15 +17,22 @@ export default function Dashboard({ onSelectTender }: DashboardProps) {
 
   useEffect(() => {
     getTenders()
-      .then(setRecentTenders)
-      .catch(err => console.error('Failed to fetch tenders:', err))
+      .then((data) => {
+        console.log('Tenders received:', data)
+        setRecentTenders(data || [])
+      })
+      .catch(err => {
+        console.error('Failed to fetch tenders:', err)
+        setRecentTenders([])
+      })
       .finally(() => setLoading(false))
   }, [])
 
   useEffect(() => {
     const checkCriteriaStatus = async () => {
       const status: Record<string, { approved: boolean, signed: boolean }> = {}
-      for (const tender of recentTenders) {
+      const tenders = recentTenders || []
+      for (const tender of tenders) {
         try {
           const data = await getCriteria(tender.tender_id)
           status[tender.tender_id] = {
@@ -38,7 +45,7 @@ export default function Dashboard({ onSelectTender }: DashboardProps) {
       }
       setCriteriaStatus(status)
     }
-    if (recentTenders.length > 0) checkCriteriaStatus()
+    if ((recentTenders || []).length > 0) checkCriteriaStatus()
   }, [recentTenders])
 
   const handleSignOffSuccess = () => {
@@ -46,8 +53,8 @@ export default function Dashboard({ onSelectTender }: DashboardProps) {
     getTenders().then(setRecentTenders)
   }
 
-  const completedCount = recentTenders.filter(t => t.status === 'completed').length
-  const activeCount = recentTenders.filter(t => t.status === 'active').length
+  const completedCount = (recentTenders || []).filter(t => t.status === 'completed').length
+  const activeCount = (recentTenders || []).filter(t => t.status === 'active').length
 
   return (
     <div className="space-y-6">
@@ -71,7 +78,7 @@ export default function Dashboard({ onSelectTender }: DashboardProps) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
               <p className="text-sm text-slate-500">Total Tenders</p>
-              <p className="text-3xl font-bold text-slate-800 mt-2">{recentTenders.length}</p>
+              <p className="text-3xl font-bold text-slate-800 mt-2">{(recentTenders || []).length}</p>
             </div>
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
               <p className="text-sm text-slate-500">Active</p>
@@ -87,7 +94,7 @@ export default function Dashboard({ onSelectTender }: DashboardProps) {
             <div className="p-4 border-b border-slate-200">
               <h3 className="font-semibold text-slate-800">Recent Tenders</h3>
             </div>
-            {recentTenders.length === 0 ? (
+            {(recentTenders || []).length === 0 ? (
               <div className="p-8 text-center text-slate-500">No tenders found</div>
             ) : (
               <table className="w-full">
@@ -102,7 +109,7 @@ export default function Dashboard({ onSelectTender }: DashboardProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {recentTenders.map((tender) => (
+                  {(recentTenders || []).map((tender) => (
                     <tr key={tender.tender_id} className="border-t border-slate-100">
                       <td className="p-4 text-sm">{tender.tender_id}</td>
                       <td className="p-4 text-sm">{tender.tender_name}</td>

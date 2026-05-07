@@ -92,7 +92,7 @@ class ReportGenerator:
                     story.append(Paragraph(f"  {crit_id} - {crit_label}: {crit_verdict}", styles["Normal"]))
                     story.append(Paragraph(f"    Reason: {reason}", styles["Normal"]))
                     
-                    for flag in crit.get("yellow_flags", []):
+                    for flag in crit.get("yellow_flags") or []:
                         story.append(Paragraph(f"    ⚠ {flag.get('trigger_type', '')}: {flag.get('reason', '')}", styles["Normal"]))
 
                 story.append(Spacer(1, 18))

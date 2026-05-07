@@ -115,7 +115,15 @@ export interface AuditRecordEntry {
 export interface VerdictOutput {
   tender_id: string
   tender_name: string
+  submission_deadline?: string
   bidders: BidderResult[]
+  total_bidders?: number
+  summary?: {
+    total: number
+    eligible: number
+    not_eligible: number
+    needs_review: number
+  }
   audit_records: AuditRecordEntry[]
   yellow_flag_summary: { total: number; by_type: Record<string, number> }
 }

@@ -33,13 +33,13 @@ export interface TenderDetail {
   criteria_extracted: boolean
 }
 
-interface TendersResponse {
-  tenders: TenderSummary[]
-}
-
 export async function getTenders(): Promise<TenderSummary[]> {
-  const { data } = await api.get<TendersResponse>('/tenders')
-  return data.tenders
+  const { data } = await api.get('/tenders')
+  // Handle both array response and {tenders: [...]} response
+  if (Array.isArray(data)) {
+    return data
+  }
+  return data?.tenders || []
 }
 
 export async function getTenderDetail(tenderId: string): Promise<TenderDetail> {
@@ -58,7 +58,17 @@ export async function getCriterionDetail(criterionId: string): Promise<Criterion
 }
 
 export async function applyOverride(input: HumanOverrideInput): Promise<AuditRecordEntry> {
-  const { data } = await api.post<AuditRecordEntry>('/override/apply', input)
+  const { data } = await api.post<AuditRecordEntry>('/override/apply', null, {
+    params: {
+      criterion_id: input.criterion_id,
+      bidder_id: input.bidder_id,
+      override_verdict: input.override_verdict,
+      officer_id: input.officer_id,
+      officer_name: input.officer_name,
+      rationale: input.rationale,
+      signature: input.signature
+    }
+  })
   return data
 }
 
@@ -132,6 +142,7 @@ export interface CriteriaInfo {
   criteria: any[]
   criteria_approved: boolean
   sign_off: any | null
+  extractor_used?: string
 }
 
 export async function getCriteria(tenderId: string): Promise<CriteriaInfo> {
