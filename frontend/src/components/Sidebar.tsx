@@ -33,7 +33,7 @@ export default function Sidebar() {
         </ul>
       </nav>
       <div className="p-4 border-t border-slate-700">
-        <p className="text-xs text-slate-400">CRPF Procurement</p>
+        <p className="text-xs text-slate-400">Tender Evaluation System</p>
       </div>
     </aside>
   )
